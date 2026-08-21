@@ -71,9 +71,27 @@ GAP_ACTIONS = {
 }
 
 
+# Why an uncloseable gap is uncloseable. One generic line cannot describe
+# four different obstacles: a missing annotation is the publisher's to add,
+# a short window is nobody's to add at all. Saying the wrong one is still
+# saying something false.
+GAP_BLOCKED_BY = {
+    GAP_UNDECLARED_CAPABILITY: "only the tool's publisher can declare "
+                               "readOnlyHint",
+    GAP_NO_DESCRIPTION: "only the registry entry's owner can add a description",
+    GAP_AUDIT_LOGGING_OFF: "only a project owner can enable Data Access audit "
+                           "logs, and it is not retroactive",
+    GAP_OBSERVATION_WINDOW: "only elapsed time closes this — no call helps",
+    GAP_AGENT_IDENTITY: "the registry schema has no identity field, so there "
+                        "is nothing to fetch",
+}
+
+
 def _gap(kind, detail):
     """One missing-evidence item: dispatchable kind + human detail."""
-    return {"kind": kind, "detail": detail, "action": GAP_ACTIONS.get(kind)}
+    return {"kind": kind, "detail": detail,
+            "action": GAP_ACTIONS.get(kind),
+            "blocked_by": GAP_BLOCKED_BY.get(kind)}
 
 
 def closeable(gaps):

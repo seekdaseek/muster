@@ -270,8 +270,8 @@ def render(data, manifest):
                 if m.get("action"):
                     A("         closeable by %s" % m["action"])
                 else:
-                    A("         not closeable by the reviewer — the catalog "
-                      "owner declares this")
+                    A("         not closeable by the reviewer — %s"
+                      % (m.get("blocked_by") or "no route to this evidence"))
 
     A("")
     unk_a = inv.unknown_keys(data.get("agents"), inv.AGENT_KEYS)

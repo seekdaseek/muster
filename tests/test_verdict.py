@@ -347,6 +347,30 @@ class TestGapsAreDispatchable(unittest.TestCase):
         g = V._gap(V.GAP_TOOL_BINDINGS, "x")
         self.assertIn("bindings list", g["action"])
 
+    def test_every_uncloseable_gap_says_why_in_its_own_words(self):
+        """One generic excuse cannot describe four different obstacles."""
+        for kind, action in V.GAP_ACTIONS.items():
+            if action is None:
+                self.assertIn(kind, V.GAP_BLOCKED_BY,
+                              "%s is uncloseable but never says why" % kind)
+                self.assertTrue(V.GAP_BLOCKED_BY[kind])
+
+    def test_the_reasons_are_distinct_not_one_string_reused(self):
+        reasons = list(V.GAP_BLOCKED_BY.values())
+        self.assertEqual(len(reasons), len(set(reasons)))
+
+    def test_a_window_gap_does_not_blame_a_catalog_owner(self):
+        g = V._gap(V.GAP_OBSERVATION_WINDOW, "x")
+        self.assertIn("elapsed time", g["blocked_by"])
+        self.assertNotIn("owner", g["blocked_by"])
+
+    def test_the_identity_gap_names_the_schema_not_a_person(self):
+        g = V._gap(V.GAP_AGENT_IDENTITY, "x")
+        self.assertIn("schema has no identity field", g["blocked_by"])
+
+    def test_a_closeable_gap_has_no_blocked_by(self):
+        self.assertIsNone(V._gap(V.GAP_USAGE_EVIDENCE, "x")["blocked_by"])
+
     def test_catalog_owned_gaps_have_no_action_so_the_agent_cannot_loop(self):
         for kind in (V.GAP_UNDECLARED_CAPABILITY, V.GAP_NO_DESCRIPTION):
             self.assertIsNone(V.GAP_ACTIONS[kind])
