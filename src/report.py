@@ -241,7 +241,12 @@ def render(data, manifest):
                 A("      +  %s" % e["claim"])
                 A("         via %s" % e["source"])
             for m in v["missing_evidence"]:
-                A("      ?  MISSING %s" % m)
+                A("      ?  MISSING [%s] %s" % (m["kind"], m["detail"]))
+                if m.get("action"):
+                    A("         closeable by %s" % m["action"])
+                else:
+                    A("         not closeable by the reviewer — the catalog "
+                      "owner declares this")
 
     A("")
     unk_a = inv.unknown_keys(data.get("agents"), inv.AGENT_KEYS)

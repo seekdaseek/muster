@@ -23,6 +23,39 @@ import inventory as inv
 
 REVOKE, CERTIFY, ABSTAIN = "REVOKE", "CERTIFY", "ABSTAIN"
 
+# Gap kinds. An ABSTAIN names its missing evidence with one of these so a
+# reviewer agent can DISPATCH on it instead of parsing prose. Every gap is
+# either closeable by a known tool call or explicitly marked NOT_CLOSEABLE,
+# so the agent never loops on something it cannot obtain.
+GAP_USAGE_TRACES = "usage_traces"
+GAP_AGENT_CARD = "agent_card_unreadable"
+GAP_TOOL_BINDINGS = "tool_bindings"
+GAP_UNDECLARED_CAPABILITY = "undeclared_write_capability"
+GAP_ADDRESS_SET = "incomplete_address_set"
+GAP_NO_DESCRIPTION = "no_description"
+
+# Which gaps an agent can actually do something about, and with what.
+GAP_ACTIONS = {
+    GAP_USAGE_TRACES: "cloudtrace.traces.list scoped to this principal",
+    GAP_AGENT_CARD: "re-probe the workload's A2A well-known path",
+    GAP_TOOL_BINDINGS: "agent-registry bindings list",
+    GAP_ADDRESS_SET: "resolve the project number and region, then rebuild "
+                     "the address set",
+    # Not closeable by us: the catalog owner declares these, not the reviewer.
+    GAP_UNDECLARED_CAPABILITY: None,
+    GAP_NO_DESCRIPTION: None,
+}
+
+
+def _gap(kind, detail):
+    """One missing-evidence item: dispatchable kind + human detail."""
+    return {"kind": kind, "detail": detail, "action": GAP_ACTIONS.get(kind)}
+
+
+def closeable(gaps):
+    """The subset a reviewer agent can attempt to close."""
+    return [g for g in gaps if g.get("action")]
+
 
 def _ev(claim, source):
     """One piece of evidence: what is claimed, and the artifact it came from."""
@@ -75,8 +108,8 @@ def judge_principals(principals, usage=None):
         if used is None:
             out.append(_verdict(member, "principal", ABSTAIN,
                                 "no-usage-evidence", ev,
-                                ["what this principal actually invoked "
-                                 "(runtime traces)"]))
+                                [_gap(GAP_USAGE_TRACES,
+                                      "what this principal actually invoked")]))
             continue
         excess = sorted(set(roles) - set(used))
         if excess:
@@ -116,14 +149,16 @@ def judge_workloads(shadows):
         if w.get("card_state") == "UNREACHABLE":
             out.append(_verdict(
                 w["workload"], "workload", ABSTAIN, "agent-card-unreachable", base,
-                ["whether this workload is an agent — its card could not be read, "
-                 "which is not the same as it having none"]))
+                [_gap(GAP_AGENT_CARD,
+                      "its card could not be read, which is not the same as "
+                      "it having none")]))
             continue
         if not w["registered"]:
-            missing = ["whether this workload is an agent at all"]
+            missing = [_gap(GAP_AGENT_CARD, "whether this workload is an agent at all")]
             if not w.get("derived_url_available"):
-                missing.append("the full address set — the Cloud Run API reports "
-                               "one URL but a service can answer on more")
+                missing.append(_gap(GAP_ADDRESS_SET,
+                                    "the Cloud Run API reports one URL but a "
+                                    "service can answer on more"))
             out.append(_verdict(
                 w["workload"], "workload", ABSTAIN, "unregistered-but-not-an-agent",
                 base + [_ev("no agent card at the A2A well-known path",
@@ -132,7 +167,7 @@ def judge_workloads(shadows):
         out.append(_verdict(
             w["workload"], "workload", ABSTAIN, "no-usage-evidence",
             base + [_ev("matched a registered endpoint", "agent-registry agents list")],
-            ["what this workload actually invoked (runtime traces)"]))
+            [_gap(GAP_USAGE_TRACES, "what this workload actually invoked")]))
     return sorted(out, key=lambda v: v["subject"])
 
 
@@ -167,14 +202,15 @@ def judge_servers(mcp_records, tools):
         unmeasured = [t["tool"] for t in rows if t["read_only"] == inv.UNMEASURED]
         missing = []
         if unmeasured:
-            missing.append("declared write capability for %d of %d tools "
-                           "(readOnlyHint absent: %s)"
-                           % (len(unmeasured), len(rows),
-                              ", ".join(unmeasured[:5])
-                              + (" …" if len(unmeasured) > 5 else "")))
+            missing.append(_gap(
+                GAP_UNDECLARED_CAPABILITY,
+                "declared write capability for %d of %d tools "
+                "(readOnlyHint absent: %s)"
+                % (len(unmeasured), len(rows),
+                   ", ".join(unmeasured[:5]) + (" …" if len(unmeasured) > 5 else ""))))
         if m and m["severity"] == inv.UNDESCRIBED:
-            missing.append("a description — the entry ships none")
-        missing.append("which of these tools were actually called (runtime traces)")
+            missing.append(_gap(GAP_NO_DESCRIPTION, "the entry ships none"))
+        missing.append(_gap(GAP_USAGE_TRACES, "which of these tools were actually called"))
         out.append(_verdict(label, "mcp_server", ABSTAIN,
                             "capability-not-fully-declared", base, missing))
     return sorted(out, key=lambda v: v["subject"])
@@ -195,13 +231,14 @@ def judge_agents(agents, usage=None):
         if a["agent_id"] not in usage:
             out.append(_verdict(a["display_name"], "registry_agent", ABSTAIN,
                                 "no-usage-evidence", ev,
-                                ["what this agent actually invoked (runtime traces)",
-                                 "which tools it is bound to — the registry "
-                                 "bindings list is empty"]))
+                                [_gap(GAP_USAGE_TRACES, "what this agent actually invoked"),
+                                 _gap(GAP_TOOL_BINDINGS,
+                                      "which tools it is bound to — the registry "
+                                      "bindings list is empty")]))
         else:
             out.append(_verdict(a["display_name"], "registry_agent", ABSTAIN,
                                 "bindings-not-enumerated", ev,
-                                ["the agent's tool bindings"]))
+                                [_gap(GAP_TOOL_BINDINGS, "the agent's tool bindings")]))
     return sorted(out, key=lambda v: v["subject"])
 
 

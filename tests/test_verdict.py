@@ -140,7 +140,9 @@ class TestAbstainNamesWhatIsMissing(unittest.TestCase):
                     "card_state": "UNREACHABLE", "shadow_agent": False}]
         v = V.judge_workloads(shadows)[0]
         self.assertEqual(v["verdict"], V.ABSTAIN)
-        self.assertTrue(any("not the same as it having none" in m
+        self.assertEqual([m["kind"] for m in v["missing_evidence"]],
+                         [V.GAP_AGENT_CARD])
+        self.assertTrue(any("not the same as it having none" in m["detail"]
                             for m in v["missing_evidence"]))
 
     def test_incomplete_address_set_is_named_in_the_abstain(self):
@@ -149,22 +151,57 @@ class TestAbstainNamesWhatIsMissing(unittest.TestCase):
                     "urls_checked": ["https://x"], "derived_url_available": False,
                     "card_state": "no_card", "shadow_agent": False}]
         v = V.judge_workloads(shadows)[0]
-        self.assertTrue(any("full address set" in m for m in v["missing_evidence"]))
+        kinds = [m["kind"] for m in v["missing_evidence"]]
+        self.assertIn(V.GAP_ADDRESS_SET, kinds)
+        self.assertIn(V.GAP_AGENT_CARD, kinds)
 
     def test_server_abstain_names_the_undeclared_tools(self):
         tools = inv.declared_tools(fx("mcp-servers.json"))
         v = [x for x in V.judge_servers(fx("mcp-servers.json"), tools)
              if x["subject"] == "pubsub.googleapis.com"][0]
         self.assertEqual(v["verdict"], V.ABSTAIN)
-        self.assertTrue(any("readOnlyHint absent" in m for m in v["missing_evidence"]))
-        self.assertTrue(any("ships none" in m for m in v["missing_evidence"]))
+        kinds = [m["kind"] for m in v["missing_evidence"]]
+        self.assertIn(V.GAP_UNDECLARED_CAPABILITY, kinds)
+        self.assertIn(V.GAP_NO_DESCRIPTION, kinds)
+        self.assertIn(V.GAP_USAGE_TRACES, kinds)
+        self.assertTrue(any("readOnlyHint absent" in m["detail"]
+                            for m in v["missing_evidence"]))
 
     def test_registered_agent_abstains_on_empty_bindings(self):
         agents, _ = inv.canonical_agents(fx("agents.json"))
         v = V.judge_agents(agents)[0]
         self.assertEqual(v["verdict"], V.ABSTAIN)
-        self.assertTrue(any("bindings list is empty" in m
+        self.assertIn(V.GAP_TOOL_BINDINGS, [m["kind"] for m in v["missing_evidence"]])
+        self.assertTrue(any("bindings list is empty" in m["detail"]
                             for m in v["missing_evidence"]))
+
+
+class TestGapsAreDispatchable(unittest.TestCase):
+    """An agent must be able to act on a gap without parsing prose."""
+
+    def test_every_gap_has_a_known_kind(self):
+        data, agents, tools, principals, shadows = snapshot()
+        verdicts, _ = V.run_campaign(data, agents, tools, principals, shadows)
+        for v in verdicts:
+            for g in v["missing_evidence"]:
+                self.assertIn(g["kind"], V.GAP_ACTIONS,
+                              "%s has an undispatchable gap" % v["subject"])
+                self.assertTrue(g["detail"])
+
+    def test_closeable_excludes_gaps_the_reviewer_cannot_fix(self):
+        gaps = [V._gap(V.GAP_USAGE_TRACES, "x"),
+                V._gap(V.GAP_UNDECLARED_CAPABILITY, "y"),
+                V._gap(V.GAP_NO_DESCRIPTION, "z")]
+        self.assertEqual([g["kind"] for g in V.closeable(gaps)],
+                         [V.GAP_USAGE_TRACES])
+
+    def test_a_closeable_gap_names_the_tool_that_would_close_it(self):
+        g = V._gap(V.GAP_TOOL_BINDINGS, "x")
+        self.assertIn("bindings list", g["action"])
+
+    def test_catalog_owned_gaps_have_no_action_so_the_agent_cannot_loop(self):
+        for kind in (V.GAP_UNDECLARED_CAPABILITY, V.GAP_NO_DESCRIPTION):
+            self.assertIsNone(V.GAP_ACTIONS[kind])
 
 
 class TestEveryVerdictCarriesEvidence(unittest.TestCase):
