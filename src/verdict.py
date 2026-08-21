@@ -31,6 +31,7 @@ GAP_USAGE_EVIDENCE = "usage_evidence"
 GAP_AUDIT_LOGGING_OFF = "audit_logging_disabled"
 GAP_OBSERVATION_WINDOW = "insufficient_observation_window"
 GAP_TRUNCATED_RECORD = "usage_record_truncated"
+GAP_AGENT_IDENTITY = "agent_identity_unlinked"
 
 # How long an identity must be watched before "it did nothing" means
 # anything. Access recertification runs on quarterly or annual cycles, so a
@@ -54,6 +55,12 @@ GAP_ACTIONS = {
     # Only time closes this one. No tool call helps.
     GAP_OBSERVATION_WINDOW: None,
     GAP_TRUNCATED_RECORD: "re-read the audit log with a higher limit",
+    # MEASURED: the Agent Registry record carries agentId, createTime,
+    # description, displayName, location, name, protocols, skills, uid,
+    # updateTime and version — and NO identity field. Audit logs are keyed
+    # by principal email. There is nothing to join on, so no tool call the
+    # reviewer can make will close this. It is a gap in the platform.
+    GAP_AGENT_IDENTITY: None,
     GAP_AGENT_CARD: "re-probe the workload's A2A well-known path",
     GAP_TOOL_BINDINGS: "agent-registry bindings list",
     GAP_ADDRESS_SET: "resolve the project number and region, then rebuild "
@@ -306,8 +313,12 @@ def judge_agents(agents, usage=None):
                   "agents[].skills")]
         if a["agent_id"] not in usage:
             out.append(_verdict(a["display_name"], "registry_agent", ABSTAIN,
-                                "no-usage-evidence", ev,
-                                [_gap(GAP_USAGE_EVIDENCE, "what this agent actually invoked"),
+                                "agent-identity-not-linkable", ev,
+                                [_gap(GAP_AGENT_IDENTITY,
+                                      "the identity this agent runs as — the "
+                                      "registry record has no identity field "
+                                      "and audit logs are keyed by principal, "
+                                      "so there is nothing to join on"),
                                  _gap(GAP_TOOL_BINDINGS,
                                       "which tools it is bound to — the registry "
                                       "bindings list is empty")]))

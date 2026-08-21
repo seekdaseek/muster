@@ -302,12 +302,25 @@ class TestAbstainNamesWhatIsMissing(unittest.TestCase):
         self.assertTrue(any("readOnlyHint absent" in m["detail"]
                             for m in v["missing_evidence"]))
 
-    def test_registered_agent_abstains_on_empty_bindings(self):
+    def test_registered_agent_cannot_be_linked_to_an_identity(self):
+        """MEASURED: the registry record has no identity field, and audit
+        logs are keyed by principal. Nothing to join on — a platform gap,
+        not a reviewer gap, so no tool call closes it."""
         agents, _ = inv.canonical_agents(fx("agents.json"))
         v = V.judge_agents(agents)[0]
         self.assertEqual(v["verdict"], V.ABSTAIN)
+        self.assertEqual(v["rule"], "agent-identity-not-linkable")
+        kinds = [g["kind"] for g in v["missing_evidence"]]
+        self.assertIn(V.GAP_AGENT_IDENTITY, kinds)
+        self.assertIsNone(V.GAP_ACTIONS[V.GAP_AGENT_IDENTITY])
+        # The identity gap is uncloseable; the bindings gap beside it is not.
+        # Only one of the two is something the reviewer can go and fetch.
+        self.assertEqual([g["kind"] for g in V.closeable(v["missing_evidence"])],
+                         [V.GAP_TOOL_BINDINGS])
         self.assertIn(V.GAP_TOOL_BINDINGS, [m["kind"] for m in v["missing_evidence"]])
         self.assertTrue(any("bindings list is empty" in m["detail"]
+                            for m in v["missing_evidence"]))
+        self.assertTrue(any("nothing to join on" in m["detail"]
                             for m in v["missing_evidence"]))
 
 
