@@ -218,6 +218,10 @@ def render(data, manifest):
     A("CERTIFICATION CAMPAIGN   %d subject(s)" % len(verdicts))
     A("  REVOKE %-4d CERTIFY %-4d ABSTAIN %d"
       % (tally[V.REVOKE], tally[V.CERTIFY], tally[V.ABSTAIN]))
+    kinds = {}
+    for v in verdicts:
+        kinds[v["kind"]] = kinds.get(v["kind"], 0) + 1
+    A("  subjects: %s" % "  ".join("%s %d" % (k, n) for k, n in sorted(kinds.items())))
     if not V.certify_reachable(usage):
         A("")
         A("  CERTIFY WAS NOT REACHABLE IN THIS CAMPAIGN. No runtime traces")

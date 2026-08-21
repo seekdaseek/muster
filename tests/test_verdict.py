@@ -70,6 +70,26 @@ class TestRevokeNeedsCompleteEvidence(unittest.TestCase):
         self.assertIn("compute@developer", v[0]["subject"])
         self.assertEqual(v[0]["rule"], "primitive-role-on-non-human-identity")
 
+    def test_evidence_lists_every_role_held_not_just_the_triggering_one(self):
+        """An evidence pack that understates an entitlement is not defensible."""
+        principals = {"serviceAccount:x@developer.gserviceaccount.com":
+                      ["roles/cloudbuild.builds.builder", "roles/editor"]}
+        v = V.judge_principals(principals)[0]
+        self.assertEqual(v["verdict"], V.REVOKE)
+        held = [e for e in v["evidence"] if e["claim"].startswith("holds")][0]
+        self.assertIn("roles/editor", held["claim"])
+        self.assertIn("roles/cloudbuild.builds.builder", held["claim"])
+        self.assertIn("2 role(s)", held["claim"])
+        fires = [e for e in v["evidence"] if e["claim"].startswith("the rule fires")][0]
+        self.assertIn("roles/editor", fires["claim"])
+        self.assertNotIn("cloudbuild", fires["claim"])
+
+    def test_abstaining_principal_evidence_also_counts_roles(self):
+        p = {"serviceAccount:a@x.iam.gserviceaccount.com":
+             ["roles/pubsub.serviceAgent", "roles/run.invoker"]}
+        v = V.judge_principals(p)[0]
+        self.assertIn("2 role(s)", v["evidence"][0]["claim"])
+
     def test_human_owner_abstains_rather_than_revoked(self):
         principals = inv.iam_principals(fx("iam.json"))
         v = [x for x in V.judge_principals(principals)

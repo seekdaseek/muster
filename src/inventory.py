@@ -281,6 +281,10 @@ def overprivileged(principals):
         findings.append({
             "principal": member,
             "roles": hits,
+            # The rule fires on the primitive subset, but an evidence pack
+            # must show everything the principal holds — understating an
+            # entitlement is the opposite of defensible.
+            "all_roles": sorted(roles),
             "human": human,
             "default_service_account": is_default_service_account(member),
             "flagged": not human,

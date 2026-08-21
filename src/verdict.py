@@ -53,8 +53,11 @@ def judge_principals(principals, usage=None):
     out = []
     for finding in inv.overprivileged(principals):
         if finding["flagged"]:
-            ev = [_ev("holds %s" % ", ".join(finding["roles"]),
+            allr = finding.get("all_roles") or finding["roles"]
+            ev = [_ev("holds %d role(s): %s" % (len(allr), ", ".join(allr)),
                       "projects.getIamPolicy"),
+                  _ev("the rule fires on %s" % ", ".join(finding["roles"]),
+                      "rule: primitive roles are not scoped"),
                   _ev(finding["reason"], "rule: primitive roles are not scoped")]
             if finding["default_service_account"]:
                 ev.append(_ev("Google-managed default service account, granted "
@@ -66,7 +69,8 @@ def judge_principals(principals, usage=None):
     for member, roles in principals.items():
         if member in judged:
             continue
-        ev = [_ev("holds %s" % ", ".join(roles), "projects.getIamPolicy")]
+        ev = [_ev("holds %d role(s): %s" % (len(roles), ", ".join(roles)),
+                  "projects.getIamPolicy")]
         used = usage.get(member)
         if used is None:
             out.append(_verdict(member, "principal", ABSTAIN,
