@@ -1,0 +1,62 @@
+[
+  {
+    "agentId": "urn:agent:googleapis.com:locations:global:workspaceagent:workspaceagent--a2a",
+    "createTime": "2026-02-06T16:37:41.413148Z",
+    "description": "A Workspace Agent is designed to power AI-driven features and workflows across Google Workspace applications like Docs and Slides.",
+    "displayName": "Workspace Agent",
+    "location": "global",
+    "name": "projects/ata-agentfleet-2026/locations/global/agents/agentregistry-00000000-0000-0000-630f-070a9d06e171",
+    "protocols": [
+      {
+        "interfaces": [
+          {
+            "protocolBinding": "HTTP_JSON",
+            "url": "https://workspaceagent.googleapis.com/a2a"
+          }
+        ],
+        "protocolVersion": "0.3.0",
+        "type": "A2A_AGENT"
+      }
+    ],
+    "skills": [
+      {
+        "description": "Analyzes text to extract key topics and generates a multi-slide presentation.",
+        "id": "create_presentation",
+        "name": "create_presentation"
+      }
+    ],
+    "uid": "a1b2c3d4",
+    "updateTime": "2026-08-19T09:12:00.000000Z",
+    "version": "1"
+  },
+  {
+    "agentId": "urn:agent:googleapis.com:locations:global:workspaceagent:workspaceagent--a2a",
+    "createTime": "2026-02-06T16:37:41.413148Z",
+    "description": "A Workspace Agent is designed to power AI-driven features and workflows across Google Workspace applications like Docs and Slides.",
+    "displayName": "Workspace Agent",
+    "location": "global",
+    "name": "projects/ata-agentfleet-2026/locations/us-east4/agents/agentregistry-00000000-0000-0000-630f-070a9d06e171",
+    "protocols": [
+      {
+        "interfaces": [
+          {
+            "protocolBinding": "HTTP_JSON",
+            "url": "https://workspaceagent.googleapis.com/a2a"
+          }
+        ],
+        "protocolVersion": "0.3.0",
+        "type": "A2A_AGENT"
+      }
+    ],
+    "skills": [
+      {
+        "description": "Analyzes text to extract key topics and generates a multi-slide presentation.",
+        "id": "create_presentation",
+        "name": "create_presentation"
+      }
+    ],
+    "uid": "a1b2c3d4",
+    "updateTime": "2026-08-19T09:12:00.000000Z",
+    "version": "1"
+  }
+]

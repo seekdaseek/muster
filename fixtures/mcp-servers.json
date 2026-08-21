@@ -1,0 +1,166 @@
+[
+  {
+    "createTime": "2026-08-20T21:35:43.031411Z",
+    "description": "MCP server which exposes AgentRegistry APIs.",
+    "displayName": "agentregistry.googleapis.com",
+    "interfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "url": "https://agentregistry.googleapis.com/mcp"
+      }
+    ],
+    "mcpServerId": "urn:mcp:googleapis.com:projects:000000000000:locations:global:agentregistry",
+    "name": "projects/ata-agentfleet-2026/locations/global/mcpServers/agentregistry-00000000-0000-0000-9c17-e7b3ca9c84ea",
+    "tools": [
+      {
+        "annotations": {
+          "idempotentHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Return a paginated list of agents.",
+        "name": "list_agents"
+      },
+      {
+        "annotations": {
+          "idempotentHint": false,
+          "readOnlyHint": false
+        },
+        "description": "Create an agent.",
+        "name": "create_agent"
+      },
+      {
+        "description": "Tool with no annotations at all.",
+        "name": "mystery_tool"
+      },
+      {
+        "annotations": {
+          "idempotentHint": true
+        },
+        "description": "annotations present but readOnlyHint missing",
+        "name": "update_endpoint"
+      },
+      {
+        "annotations": {
+          "idempotentHint": true,
+          "readOnlyHint": true
+        },
+        "description": "List Agent Registry services.",
+        "name": "list_services"
+      }
+    ],
+    "updateTime": "2026-08-20T21:35:43.031411Z"
+  },
+  {
+    "createTime": "2026-08-20T21:35:44.000000Z",
+    "updateTime": "2026-08-20T21:35:44.000000Z",
+    "description": "MCP server which exposes Cloud Run APIs.",
+    "displayName": "run.googleapis.com",
+    "interfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "url": "https://run.googleapis.com/mcp"
+      }
+    ],
+    "mcpServerId": "urn:mcp:googleapis.com:projects:000000000000:locations:global:run",
+    "name": "projects/ata-agentfleet-2026/locations/global/mcpServers/agentregistry-00000000-0000-0000-0000-000000000002",
+    "tools": [
+      {
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "name": "list_services",
+        "description": "List Cloud Run services."
+      },
+      {
+        "name": "deploy_service_from_image",
+        "description": "Deploy."
+      }
+    ]
+  },
+  {
+    "createTime": "2026-08-20T07:49:56.589259Z",
+    "updateTime": "2026-08-20T07:49:56.589259Z",
+    "displayName": "unused",
+    "interfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "url": "https://billingbudgets.googleapis.com/mcp"
+      }
+    ],
+    "mcpServerId": "urn:mcp:googleapis.com:projects:000000000000:locations:global:billingbudgets",
+    "name": "projects/ata-agentfleet-2026/locations/global/mcpServers/agentregistry-00000000-0000-0000-9822-4dbbfa400f5a",
+    "tools": [
+      {
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true
+        },
+        "name": "get_budget",
+        "description": "Get a budget."
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true
+        },
+        "name": "list_budgets",
+        "description": "List budgets."
+      },
+      {
+        "annotations": {
+          "idempotentHint": false
+        },
+        "name": "create_budget",
+        "description": "Create a budget."
+      },
+      {
+        "annotations": {
+          "idempotentHint": false
+        },
+        "name": "update_budget",
+        "description": "Update a budget."
+      },
+      {
+        "annotations": {
+          "idempotentHint": false
+        },
+        "name": "delete_budget",
+        "description": "Delete a budget."
+      }
+    ]
+  },
+  {
+    "createTime": "2026-08-20T07:49:57.000000Z",
+    "updateTime": "2026-08-20T07:49:57.000000Z",
+    "displayName": "pubsub.googleapis.com",
+    "interfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "url": "https://pubsub.googleapis.com/mcp"
+      }
+    ],
+    "mcpServerId": "urn:mcp:googleapis.com:projects:000000000000:locations:global:pubsub",
+    "name": "projects/ata-agentfleet-2026/locations/global/mcpServers/agentregistry-00000000-0000-0000-0000-00000000pubs",
+    "tools": [
+      {
+        "annotations": {
+          "idempotentHint": true
+        },
+        "name": "delete_topic",
+        "description": "Delete a topic."
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true
+        },
+        "name": "list_topics",
+        "description": "List topics."
+      },
+      {
+        "name": "publish",
+        "description": "Publish a message."
+      }
+    ]
+  }
+]

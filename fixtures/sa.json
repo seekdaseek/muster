@@ -1,0 +1,8 @@
+[
+  {
+    "displayName": "Default compute service account",
+    "email": "000000000000-compute@developer.gserviceaccount.com",
+    "disabled": false,
+    "projectId": "ata-agentfleet-2026"
+  }
+]
