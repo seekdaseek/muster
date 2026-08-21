@@ -1,5 +1,6 @@
 """muster report rendering. Pure: takes data + manifest, returns text."""
 import inventory as inv
+import verdict as V
 
 BAR = "=" * 66
 
@@ -208,6 +209,35 @@ def render(data, manifest):
         A("MODEL ARMOR  %d template(s) configured" % len(ma))
         if not ma:
             A("  no templates yet, so no content findings exist to read")
+
+    # ---- the campaign. Rules decide; no model touches a verdict.
+    usage = data.get("usage") or {}
+    verdicts, tally = V.run_campaign(data, agents, tools, principals, shadows, usage)
+    A("")
+    A(BAR)
+    A("CERTIFICATION CAMPAIGN   %d subject(s)" % len(verdicts))
+    A("  REVOKE %-4d CERTIFY %-4d ABSTAIN %d"
+      % (tally[V.REVOKE], tally[V.CERTIFY], tally[V.ABSTAIN]))
+    if not V.certify_reachable(usage):
+        A("")
+        A("  CERTIFY WAS NOT REACHABLE IN THIS CAMPAIGN. No runtime traces")
+        A("  exist on this project, so nothing could be shown to use only")
+        A("  what it holds. Zero certifications is the engine working.")
+    A(BAR)
+    for want in (V.REVOKE, V.CERTIFY, V.ABSTAIN):
+        rows = [v for v in verdicts if v["verdict"] == want]
+        if not rows:
+            continue
+        A("")
+        A("%s  (%d)" % (want, len(rows)))
+        for v in rows:
+            A("  %s   [%s]" % (v["subject"], v["kind"]))
+            A("      rule  %s" % v["rule"])
+            for e in v["evidence"]:
+                A("      +  %s" % e["claim"])
+                A("         via %s" % e["source"])
+            for m in v["missing_evidence"]:
+                A("      ?  MISSING %s" % m)
 
     A("")
     unk_a = inv.unknown_keys(data.get("agents"), inv.AGENT_KEYS)
