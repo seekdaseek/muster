@@ -272,6 +272,37 @@ class TestIam(unittest.TestCase):
         self.assertEqual(inv.overprivileged({}), [])
 
 
+class TestAuditConfig(unittest.TestCase):
+    """DATA_READ/DATA_WRITE audit logs are OFF by default on GCP."""
+
+    def test_a_default_project_records_no_data_access(self):
+        a = inv.audit_config(fx("iam.json"))
+        self.assertTrue(a["admin_activity"])
+        self.assertFalse(a["data_read"])
+        self.assertFalse(a["data_write"])
+        self.assertFalse(a["complete"])
+
+    def test_fully_configured_project_is_complete(self):
+        a = inv.audit_config({"auditConfigs": [
+            {"service": "allServices",
+             "auditLogConfigs": [{"logType": "DATA_READ"}, {"logType": "DATA_WRITE"}]}]})
+        self.assertTrue(a["complete"])
+        self.assertEqual(a["configured_services"]["allServices"],
+                         ["DATA_READ", "DATA_WRITE"])
+
+    def test_partial_config_is_not_complete(self):
+        a = inv.audit_config({"auditConfigs": [
+            {"service": "storage.googleapis.com",
+             "auditLogConfigs": [{"logType": "DATA_READ"}]}]})
+        self.assertTrue(a["data_read"])
+        self.assertFalse(a["data_write"])
+        self.assertFalse(a["complete"])
+
+    def test_empty_policy_does_not_crash(self):
+        self.assertFalse(inv.audit_config({})["complete"])
+        self.assertFalse(inv.audit_config(None)["complete"])
+
+
 class TestShadowDetection(unittest.TestCase):
     def test_no_workloads_yet_is_an_empty_list_not_an_error(self):
         agents, _ = inv.canonical_agents(fx("agents.json"))

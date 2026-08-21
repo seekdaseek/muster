@@ -257,6 +257,38 @@ def iam_principals(policy):
     return {m: sorted(r) for m, r in sorted(out.items())}
 
 
+def audit_config(policy):
+    """What audit logging is actually enabled, read off the IAM policy.
+
+    MEASURED REALITY: ADMIN_READ / DATA_READ / DATA_WRITE audit logs are OFF
+    BY DEFAULT on a Google Cloud project. Admin Activity logs are always on
+    and cannot be disabled. So without an explicit auditConfigs block, the
+    only authoritative record of what an identity did covers administrative
+    writes — read activity is simply not recorded anywhere.
+
+    This is why usage evidence on a default project is structurally
+    incomplete, and muster should say which switch fixes it rather than
+    pretend the silence means innocence.
+    """
+    configs = (policy or {}).get("auditConfigs") or []
+    enabled = {}
+    for c in configs:
+        svc = c.get("service", UNMEASURED)
+        types = sorted(l.get("logType") for l in c.get("auditLogConfigs") or []
+                       if l.get("logType"))
+        if types:
+            enabled[svc] = types
+    return {
+        "configured_services": enabled,
+        # Admin Activity is always on; it is the one thing we can rely on.
+        "admin_activity": True,
+        "data_read": any("DATA_READ" in t for t in enabled.values()),
+        "data_write": any("DATA_WRITE" in t for t in enabled.values()),
+        "complete": bool(enabled) and any(
+            "DATA_READ" in t and "DATA_WRITE" in t for t in enabled.values()),
+    }
+
+
 def is_default_service_account(member):
     """Google-managed default SAs that receive broad roles at project creation."""
     if not member.startswith("serviceAccount:"):

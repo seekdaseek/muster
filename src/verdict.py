@@ -27,7 +27,8 @@ REVOKE, CERTIFY, ABSTAIN = "REVOKE", "CERTIFY", "ABSTAIN"
 # reviewer agent can DISPATCH on it instead of parsing prose. Every gap is
 # either closeable by a known tool call or explicitly marked NOT_CLOSEABLE,
 # so the agent never loops on something it cannot obtain.
-GAP_USAGE_TRACES = "usage_traces"
+GAP_USAGE_EVIDENCE = "usage_evidence"
+GAP_AUDIT_LOGGING_OFF = "audit_logging_disabled"
 GAP_AGENT_CARD = "agent_card_unreadable"
 GAP_TOOL_BINDINGS = "tool_bindings"
 GAP_UNDECLARED_CAPABILITY = "undeclared_write_capability"
@@ -36,7 +37,11 @@ GAP_NO_DESCRIPTION = "no_description"
 
 # Which gaps an agent can actually do something about, and with what.
 GAP_ACTIONS = {
-    GAP_USAGE_TRACES: "cloudtrace.traces.list scoped to this principal",
+    GAP_USAGE_EVIDENCE: "logging.entries.list over cloud audit logs, "
+                        "scoped to this principal",
+    # The reviewer cannot enable audit logging on someone else's project.
+    # It reports the switch; the owner throws it.
+    GAP_AUDIT_LOGGING_OFF: None,
     GAP_AGENT_CARD: "re-probe the workload's A2A well-known path",
     GAP_TOOL_BINDINGS: "agent-registry bindings list",
     GAP_ADDRESS_SET: "resolve the project number and region, then rebuild "
@@ -75,14 +80,19 @@ def _verdict(subject, kind, verdict, rule, evidence, missing=None):
 
 # --------------------------------------------------------------- principals
 
-def judge_principals(principals, usage=None):
+def judge_principals(principals, usage=None, audit=None):
     """One verdict per IAM principal.
 
-    usage is the record of what each principal actually did. On a project with
-    no traces it is empty, and every principal that is not already REVOKE-able
-    must ABSTAIN — we know what they HOLD and nothing about what they USE.
+    `usage` is what each principal was OBSERVED to do. `audit` is what the
+    project actually records. The second gates the first: if Data Access
+    audit logs are off, read activity is not written down anywhere, so an
+    absence of observed reads is not evidence of no reads, and CERTIFY is
+    unreachable no matter how quiet the logs look.
+
+    Silence in an incomplete record is not innocence.
     """
     usage = usage or {}
+    audit = audit or {"complete": False, "data_read": False, "data_write": False}
     out = []
     for finding in inv.overprivileged(principals):
         if finding["flagged"]:
@@ -108,8 +118,20 @@ def judge_principals(principals, usage=None):
         if used is None:
             out.append(_verdict(member, "principal", ABSTAIN,
                                 "no-usage-evidence", ev,
-                                [_gap(GAP_USAGE_TRACES,
+                                [_gap(GAP_USAGE_EVIDENCE,
                                       "what this principal actually invoked")]))
+            continue
+        if not audit.get("complete"):
+            missing = [_gap(GAP_AUDIT_LOGGING_OFF,
+                            "Data Access audit logs are not enabled, so read "
+                            "activity is not recorded — an absence of observed "
+                            "reads is not evidence that none happened")]
+            out.append(_verdict(
+                member, "principal", ABSTAIN, "usage-record-incomplete",
+                ev + [_ev("observed %d operation(s): %s"
+                          % (len(used), ", ".join(sorted(used)) or "none"),
+                          "cloud audit logs (Admin Activity only)")],
+                missing))
             continue
         excess = sorted(set(roles) - set(used))
         if excess:
@@ -167,7 +189,7 @@ def judge_workloads(shadows):
         out.append(_verdict(
             w["workload"], "workload", ABSTAIN, "no-usage-evidence",
             base + [_ev("matched a registered endpoint", "agent-registry agents list")],
-            [_gap(GAP_USAGE_TRACES, "what this workload actually invoked")]))
+            [_gap(GAP_USAGE_EVIDENCE, "what this workload actually invoked")]))
     return sorted(out, key=lambda v: v["subject"])
 
 
@@ -210,7 +232,7 @@ def judge_servers(mcp_records, tools):
                    ", ".join(unmeasured[:5]) + (" …" if len(unmeasured) > 5 else ""))))
         if m and m["severity"] == inv.UNDESCRIBED:
             missing.append(_gap(GAP_NO_DESCRIPTION, "the entry ships none"))
-        missing.append(_gap(GAP_USAGE_TRACES, "which of these tools were actually called"))
+        missing.append(_gap(GAP_USAGE_EVIDENCE, "which of these tools were actually called"))
         out.append(_verdict(label, "mcp_server", ABSTAIN,
                             "capability-not-fully-declared", base, missing))
     return sorted(out, key=lambda v: v["subject"])
@@ -231,7 +253,7 @@ def judge_agents(agents, usage=None):
         if a["agent_id"] not in usage:
             out.append(_verdict(a["display_name"], "registry_agent", ABSTAIN,
                                 "no-usage-evidence", ev,
-                                [_gap(GAP_USAGE_TRACES, "what this agent actually invoked"),
+                                [_gap(GAP_USAGE_EVIDENCE, "what this agent actually invoked"),
                                  _gap(GAP_TOOL_BINDINGS,
                                       "which tools it is bound to — the registry "
                                       "bindings list is empty")]))
@@ -244,9 +266,9 @@ def judge_agents(agents, usage=None):
 
 # ------------------------------------------------------------------ campaign
 
-def run_campaign(data, agents, tools, principals, shadows, usage=None):
+def run_campaign(data, agents, tools, principals, shadows, usage=None, audit=None):
     """Every subject, one verdict each, plus the honest tally."""
-    verdicts = (judge_principals(principals, usage)
+    verdicts = (judge_principals(principals, usage, audit)
                 + judge_workloads(shadows)
                 + judge_servers(data.get("mcp-servers"), tools)
                 + judge_agents(agents, usage))
@@ -256,10 +278,27 @@ def run_campaign(data, agents, tools, principals, shadows, usage=None):
     return verdicts, tally
 
 
-def certify_reachable(usage):
-    """Is CERTIFY even possible with the evidence available?
+def certify_reachable(usage, audit=None):
+    """Is CERTIFY even possible with the evidence this project records?
 
-    Stating this up front is the difference between "we found nothing to
-    certify" and "we could not have certified anything".
+    Two conditions, and the second is the one everyone forgets: you need
+    observations AND a record complete enough for their absence to mean
+    something. Stating this up front is the difference between "we found
+    nothing to certify" and "we could not have certified anything".
     """
-    return bool(usage)
+    return bool(usage) and bool((audit or {}).get("complete"))
+
+
+def certification_blockers(usage, audit=None):
+    """What must change before any CERTIFY is possible here. Actionable."""
+    audit = audit or {}
+    out = []
+    if not usage:
+        out.append("no usage observations were gathered for any principal")
+    if not audit.get("data_read"):
+        out.append("DATA_READ audit logs are disabled — enable them in the "
+                   "project IAM policy auditConfigs, or read activity stays "
+                   "unrecorded")
+    if not audit.get("data_write"):
+        out.append("DATA_WRITE audit logs are disabled — same fix")
+    return out

@@ -17,6 +17,12 @@ def fx(name):
         return json.load(f)
 
 
+COMPLETE_AUDIT = {"complete": True, "data_read": True, "data_write": True,
+                  "admin_activity": True}
+DEFAULT_AUDIT = {"complete": False, "data_read": False, "data_write": False,
+                 "admin_activity": True}
+
+
 def snapshot():
     data = {"mcp-servers": fx("mcp-servers.json")}
     agents, dup = inv.canonical_agents(fx("agents.json"))
@@ -32,15 +38,44 @@ class TestCertifyIsHardToReach(unittest.TestCase):
         verdicts, tally = V.run_campaign(data, agents, tools, principals, shadows)
         self.assertEqual(tally[V.CERTIFY], 0)
 
-    def test_certify_is_declared_unreachable_when_usage_is_empty(self):
-        self.assertFalse(V.certify_reachable({}))
-        self.assertFalse(V.certify_reachable(None))
-        self.assertTrue(V.certify_reachable({"user:a@b.com": ["roles/viewer"]}))
+    def test_even_with_observations_a_default_project_certifies_nothing(self):
+        data, agents, tools, principals, shadows = snapshot()
+        usage = {m: [] for m in principals}
+        _, tally = V.run_campaign(data, agents, tools, principals, shadows,
+                                  usage, DEFAULT_AUDIT)
+        self.assertEqual(tally[V.CERTIFY], 0)
+
+    def test_certify_needs_observations_AND_a_complete_record(self):
+        u = {"user:a@b.com": ["roles/viewer"]}
+        self.assertFalse(V.certify_reachable({}, COMPLETE_AUDIT))
+        self.assertFalse(V.certify_reachable(None, COMPLETE_AUDIT))
+        self.assertFalse(V.certify_reachable(u, DEFAULT_AUDIT))
+        self.assertTrue(V.certify_reachable(u, COMPLETE_AUDIT))
+
+    def test_blockers_name_the_switch_to_throw(self):
+        b = V.certification_blockers({}, DEFAULT_AUDIT)
+        self.assertTrue(any("no usage observations" in x for x in b))
+        self.assertTrue(any("DATA_READ" in x and "auditConfigs" in x for x in b))
+        self.assertTrue(any("DATA_WRITE" in x for x in b))
+        self.assertEqual(V.certification_blockers({"a": []}, COMPLETE_AUDIT), [])
+
+    def test_silence_in_an_incomplete_record_is_not_innocence(self):
+        """The whole point. Observed nothing + reads not logged = ABSTAIN,
+        never CERTIFY and never REVOKE."""
+        p = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/storage.admin"]}
+        v = V.judge_principals(p, {"serviceAccount:app@x.iam.gserviceaccount.com": []},
+                               DEFAULT_AUDIT)[0]
+        self.assertEqual(v["verdict"], V.ABSTAIN)
+        self.assertEqual(v["rule"], "usage-record-incomplete")
+        self.assertEqual([g["kind"] for g in v["missing_evidence"]],
+                         [V.GAP_AUDIT_LOGGING_OFF])
+        self.assertTrue(any("not evidence that none happened" in g["detail"]
+                            for g in v["missing_evidence"]))
 
     def test_certify_requires_used_within_held(self):
         principals = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/run.invoker"]}
         usage = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/run.invoker"]}
-        v = V.judge_principals(principals, usage)[0]
+        v = V.judge_principals(principals, usage, COMPLETE_AUDIT)[0]
         self.assertEqual(v["verdict"], V.CERTIFY)
         self.assertEqual(v["rule"], "used-within-held")
 
@@ -48,7 +83,7 @@ class TestCertifyIsHardToReach(unittest.TestCase):
         principals = {"serviceAccount:app@x.iam.gserviceaccount.com":
                       ["roles/run.invoker", "roles/storage.admin"]}
         usage = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/run.invoker"]}
-        v = V.judge_principals(principals, usage)[0]
+        v = V.judge_principals(principals, usage, COMPLETE_AUDIT)[0]
         self.assertEqual(v["verdict"], V.REVOKE)
         self.assertEqual(v["rule"], "held-exceeds-used")
 
@@ -56,9 +91,11 @@ class TestCertifyIsHardToReach(unittest.TestCase):
         """A principal that provably did nothing CAN be judged; one we have no
         trace for cannot. None means unmeasured, [] means measured-and-empty."""
         p = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/storage.admin"]}
-        self.assertEqual(V.judge_principals(p, {})[0]["verdict"], V.ABSTAIN)
+        self.assertEqual(V.judge_principals(p, {}, COMPLETE_AUDIT)[0]["verdict"],
+                         V.ABSTAIN)
         self.assertEqual(
-            V.judge_principals(p, {"serviceAccount:app@x.iam.gserviceaccount.com": []})[0]["verdict"],
+            V.judge_principals(p, {"serviceAccount:app@x.iam.gserviceaccount.com": []},
+                               COMPLETE_AUDIT)[0]["verdict"],
             V.REVOKE)
 
 
@@ -163,7 +200,7 @@ class TestAbstainNamesWhatIsMissing(unittest.TestCase):
         kinds = [m["kind"] for m in v["missing_evidence"]]
         self.assertIn(V.GAP_UNDECLARED_CAPABILITY, kinds)
         self.assertIn(V.GAP_NO_DESCRIPTION, kinds)
-        self.assertIn(V.GAP_USAGE_TRACES, kinds)
+        self.assertIn(V.GAP_USAGE_EVIDENCE, kinds)
         self.assertTrue(any("readOnlyHint absent" in m["detail"]
                             for m in v["missing_evidence"]))
 
@@ -189,11 +226,11 @@ class TestGapsAreDispatchable(unittest.TestCase):
                 self.assertTrue(g["detail"])
 
     def test_closeable_excludes_gaps_the_reviewer_cannot_fix(self):
-        gaps = [V._gap(V.GAP_USAGE_TRACES, "x"),
+        gaps = [V._gap(V.GAP_USAGE_EVIDENCE, "x"),
                 V._gap(V.GAP_UNDECLARED_CAPABILITY, "y"),
                 V._gap(V.GAP_NO_DESCRIPTION, "z")]
         self.assertEqual([g["kind"] for g in V.closeable(gaps)],
-                         [V.GAP_USAGE_TRACES])
+                         [V.GAP_USAGE_EVIDENCE])
 
     def test_a_closeable_gap_names_the_tool_that_would_close_it(self):
         g = V._gap(V.GAP_TOOL_BINDINGS, "x")

@@ -212,7 +212,9 @@ def render(data, manifest):
 
     # ---- the campaign. Rules decide; no model touches a verdict.
     usage = data.get("usage") or {}
-    verdicts, tally = V.run_campaign(data, agents, tools, principals, shadows, usage)
+    audit = inv.audit_config(data.get("iam") or {})
+    verdicts, tally = V.run_campaign(data, agents, tools, principals, shadows,
+                                     usage, audit)
     A("")
     A(BAR)
     A("CERTIFICATION CAMPAIGN   %d subject(s)" % len(verdicts))
@@ -221,12 +223,21 @@ def render(data, manifest):
     kinds = {}
     for v in verdicts:
         kinds[v["kind"]] = kinds.get(v["kind"], 0) + 1
+    A("  audit record: Admin Activity on (always) · DATA_READ %s · DATA_WRITE %s"
+      % ("on" if audit["data_read"] else "OFF",
+         "on" if audit["data_write"] else "OFF"))
     A("  subjects: %s" % "  ".join("%s %d" % (k, n) for k, n in sorted(kinds.items())))
-    if not V.certify_reachable(usage):
+    blockers = V.certification_blockers(usage, audit)
+    if not V.certify_reachable(usage, audit):
         A("")
-        A("  CERTIFY WAS NOT REACHABLE IN THIS CAMPAIGN. No runtime traces")
-        A("  exist on this project, so nothing could be shown to use only")
-        A("  what it holds. Zero certifications is the engine working.")
+        A("  CERTIFY WAS NOT REACHABLE IN THIS CAMPAIGN. Nothing here could")
+        A("  have been certified, whatever it does. What must change first:")
+        for b in blockers:
+            A("    - %s" % b)
+        A("")
+        A("  Silence in an incomplete record is not innocence. Until read")
+        A("  activity is written down, an identity that looks idle and one")
+        A("  that is quietly reading everything are indistinguishable.")
     A(BAR)
     for want in (V.REVOKE, V.CERTIFY, V.ABSTAIN):
         rows = [v for v in verdicts if v["verdict"] == want]
