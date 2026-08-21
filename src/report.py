@@ -213,6 +213,9 @@ def render(data, manifest):
     # ---- the campaign. Rules decide; no model touches a verdict.
     usage = data.get("usage") or {}
     audit = inv.audit_config(data.get("iam") or {})
+    umeta = data.get("usage_meta") or {}
+    audit["window_days"] = umeta.get("window_days")
+    audit["truncated"] = umeta.get("truncated", False)
     verdicts, tally = V.run_campaign(data, agents, tools, principals, shadows,
                                      usage, audit)
     A("")
@@ -227,8 +230,15 @@ def render(data, manifest):
     A("  audit record: Admin Activity on (always) · DATA_READ %s · DATA_WRITE %s"
       % ("on" if audit["data_read"] else "OFF",
          "on" if audit["data_write"] else "OFF"))
-    A("  observation window: %s (%d required)"
-      % ("unrecorded" if w is None else "%d day(s)" % w, V.MIN_OBSERVATION_DAYS))
+    A("  observation window: %s (%d required)%s"
+      % ("unrecorded" if w is None else "%d day(s)" % w,
+         V.MIN_OBSERVATION_DAYS,
+         "  TRUNCATED" if audit.get("truncated") else ""))
+    if umeta.get("ok"):
+        A("  audit entries read: %d across %d attributable principal(s), "
+          "%d unattributed"
+          % (umeta.get("entries", 0), len(data.get("usage") or {}),
+             umeta.get("unattributed", 0)))
     A("  subjects: %s" % "  ".join("%s %d" % (k, n) for k, n in sorted(kinds.items())))
     blockers = V.certification_blockers(usage, audit)
     if not V.certify_reachable(usage, audit):

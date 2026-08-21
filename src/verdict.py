@@ -30,6 +30,7 @@ REVOKE, CERTIFY, ABSTAIN = "REVOKE", "CERTIFY", "ABSTAIN"
 GAP_USAGE_EVIDENCE = "usage_evidence"
 GAP_AUDIT_LOGGING_OFF = "audit_logging_disabled"
 GAP_OBSERVATION_WINDOW = "insufficient_observation_window"
+GAP_TRUNCATED_RECORD = "usage_record_truncated"
 
 # How long an identity must be watched before "it did nothing" means
 # anything. Access recertification runs on quarterly or annual cycles, so a
@@ -52,6 +53,7 @@ GAP_ACTIONS = {
     GAP_AUDIT_LOGGING_OFF: None,
     # Only time closes this one. No tool call helps.
     GAP_OBSERVATION_WINDOW: None,
+    GAP_TRUNCATED_RECORD: "re-read the audit log with a higher limit",
     GAP_AGENT_CARD: "re-probe the workload's A2A well-known path",
     GAP_TOOL_BINDINGS: "agent-registry bindings list",
     GAP_ADDRESS_SET: "resolve the project number and region, then rebuild "
@@ -130,6 +132,16 @@ def judge_principals(principals, usage=None, audit=None):
                                 "no-usage-evidence", ev,
                                 [_gap(GAP_USAGE_EVIDENCE,
                                       "what this principal actually invoked")]))
+            continue
+        if audit.get("truncated"):
+            out.append(_verdict(
+                member, "principal", ABSTAIN, "usage-record-truncated",
+                ev + [_ev("the audit read hit its limit, so this principal's "
+                          "activity is a sample, not a record",
+                          "cloud audit logs")],
+                [_gap(GAP_TRUNCATED_RECORD,
+                      "a complete read — a sample cannot show that something "
+                      "was never done")]))
             continue
         window = audit.get("window_days")
         if window is None or window < MIN_OBSERVATION_DAYS:
@@ -317,7 +329,8 @@ def certify_reachable(usage, audit=None):
     nothing to certify" and "we could not have certified anything".
     """
     return (bool(usage) and bool((audit or {}).get("complete"))
-            and window_sufficient(audit))
+            and window_sufficient(audit)
+            and not (audit or {}).get("truncated"))
 
 
 def certification_blockers(usage, audit=None):
@@ -332,6 +345,9 @@ def certification_blockers(usage, audit=None):
                    "unrecorded")
     if not audit.get("data_write"):
         out.append("DATA_WRITE audit logs are disabled — same fix")
+    if audit.get("truncated"):
+        out.append("the audit read was truncated at its limit — raise the "
+                   "limit, a sample cannot prove a negative")
     if not window_sufficient(audit):
         w = audit.get("window_days")
         out.append("only %s of observation — %d days are required before "

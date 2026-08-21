@@ -87,6 +87,27 @@ class TestCertifyIsHardToReach(unittest.TestCase):
         v = V.judge_principals(p, {"serviceAccount:app@x.iam.gserviceaccount.com": []}, a)[0]
         self.assertEqual(v["rule"], "observation-window-too-short")
 
+    def test_a_truncated_read_is_a_sample_not_a_record(self):
+        """Hitting the read limit means we saw some activity, not all of it.
+        A sample cannot prove a negative."""
+        p = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/storage.admin"]}
+        a = dict(COMPLETE_AUDIT); a["truncated"] = True
+        v = V.judge_principals(p, {"serviceAccount:app@x.iam.gserviceaccount.com": []}, a)[0]
+        self.assertEqual(v["verdict"], V.ABSTAIN)
+        self.assertEqual(v["rule"], "usage-record-truncated")
+        self.assertEqual([g["kind"] for g in v["missing_evidence"]],
+                         [V.GAP_TRUNCATED_RECORD])
+
+    def test_truncation_beats_a_long_window(self):
+        a = dict(COMPLETE_AUDIT); a["truncated"] = True
+        self.assertFalse(V.certify_reachable({"a": []}, a))
+        self.assertTrue(any("truncated" in x
+                            for x in V.certification_blockers({"a": []}, a)))
+
+    def test_truncation_is_closeable_by_reading_again(self):
+        g = V._gap(V.GAP_TRUNCATED_RECORD, "x")
+        self.assertIn("higher limit", g["action"])
+
     def test_only_time_closes_the_window_gap(self):
         self.assertIsNone(V.GAP_ACTIONS[V.GAP_OBSERVATION_WINDOW])
         self.assertEqual(V.closeable([V._gap(V.GAP_OBSERVATION_WINDOW, "x")]), [])

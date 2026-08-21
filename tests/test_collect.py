@@ -244,6 +244,30 @@ class TestAgentCardProbe(unittest.TestCase):
         self.assertEqual(seen["u"], "https://x.a.run.app/.well-known/agent-card.json")
 
 
+class TestAuditWindow(unittest.TestCase):
+    """The window is bounded by project age, not by a switch."""
+
+    def setUp(self):
+        import datetime
+        self.now = datetime.datetime(2026, 8, 21, 2, 0, 0,
+                                     tzinfo=datetime.timezone.utc)
+
+    def test_parses_a_normal_timestamp(self):
+        self.assertEqual(C._iso_days_ago("2026-08-18T11:59:11.060391Z", self.now), 2)
+
+    def test_parses_nine_fractional_digits(self):
+        """gcloud emits 9-digit fractions; fromisoformat rejects them."""
+        self.assertEqual(C._iso_days_ago("2026-08-21T01:16:09.943957369Z", self.now), 0)
+
+    def test_unparseable_is_none_not_zero(self):
+        self.assertIsNone(C._iso_days_ago("not-a-time", self.now))
+        self.assertIsNone(C._iso_days_ago(None, self.now))
+        self.assertIsNone(C._iso_days_ago("", self.now))
+
+    def test_a_future_timestamp_clamps_to_zero(self):
+        self.assertEqual(C._iso_days_ago("2027-01-01T00:00:00Z", self.now), 0)
+
+
 class TestSnapshotRoundTrip(unittest.TestCase):
     def test_load_reports_missing_files_as_none(self):
         with tempfile.TemporaryDirectory() as d:

@@ -143,6 +143,94 @@ def probe_run_services(run_services, fetch=None):
     return out
 
 
+AUDIT_FILTER = ('protoPayload."@type"='
+                '"type.googleapis.com/google.cloud.audit.AuditLog"')
+
+
+def _iso_days_ago(ts, now=None):
+    """Whole days between an RFC3339 timestamp and now. None if unparseable."""
+    if not ts:
+        return None
+    s = ts.strip().replace("Z", "+00:00")
+    # Python's fromisoformat rejects >6 fractional digits; trim them.
+    if "." in s:
+        head, rest = s.split(".", 1)
+        frac = ""
+        while rest and rest[0].isdigit():
+            frac += rest[0]
+            rest = rest[1:]
+        s = "%s.%s%s" % (head, frac[:6], rest)
+    try:
+        then = datetime.datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return max(0, (now - then).days)
+
+
+def usage_from_audit_logs(project, limit=1000):
+    """What each principal was OBSERVED doing, from Cloud Audit Logs.
+
+    Admin Activity logs are always on and cannot be disabled, so this works
+    retroactively to project creation. Data Access logs are a separate switch
+    (see inventory.audit_config) — their absence is why an empty result here
+    is never proof of inactivity.
+
+    Returns (usage_by_principal, meta). meta carries the things that decide
+    whether the record can support a verdict at all:
+      window_days   how far back observation actually reaches
+      truncated     the read hit its limit, so the record is INCOMPLETE
+      unattributed  entries with no principal — real activity by nobody we
+                    can name, which is not the same as no activity
+    """
+    meta = {"window_days": None, "oldest": None, "truncated": False,
+            "unattributed": 0, "entries": 0, "ok": False, "error": None}
+
+    ok, out, err, code = _run(
+        ["gcloud", "logging", "read", AUDIT_FILTER, "--project", project,
+         "--order", "asc", "--limit", "1", "--format",
+         "value(timestamp)"], timeout=180)
+    oldest = out.strip().splitlines()[0] if ok and out.strip() else None
+
+    ok2, out2, err2, code2 = _run(
+        ["gcloud", "projects", "describe", project,
+         "--format=value(createTime)"])
+    created = out2.strip() if ok2 else None
+
+    # The window reaches back to the older of the two, but never further than
+    # the project has existed.
+    candidates = [d for d in (_iso_days_ago(oldest), _iso_days_ago(created))
+                  if d is not None]
+    meta["oldest"] = oldest
+    meta["window_days"] = min(candidates) if candidates else None
+
+    ok3, out3, err3, code3 = _run(
+        ["gcloud", "logging", "read", AUDIT_FILTER, "--project", project,
+         "--limit", str(limit), "--format",
+         "value(protoPayload.authenticationInfo.principalEmail,"
+         "protoPayload.methodName)"], timeout=300)
+    if not ok3:
+        meta["error"] = (err3 or "")[:300]
+        return {}, meta
+
+    usage = {}
+    lines = [l for l in out3.splitlines() if l.strip()]
+    meta["entries"] = len(lines)
+    meta["truncated"] = len(lines) >= limit
+    meta["ok"] = True
+    for line in lines:
+        parts = line.split("\t") if "\t" in line else line.split(None, 1)
+        who = parts[0].strip() if parts and parts[0].strip() else ""
+        what = parts[1].strip() if len(parts) > 1 else ""
+        if not who or "@" not in who:
+            meta["unattributed"] += 1
+            continue
+        member = "user:%s" % who if not who.endswith(
+            ".gserviceaccount.com") else "serviceAccount:%s" % who
+        usage.setdefault(member, set()).add(what or "UNMEASURED")
+    return {k: sorted(v) for k, v in usage.items()}, meta
+
+
 def project_number(project):
     """Needed to derive the project-number Cloud Run URL form."""
     ok, out, err, code = _run(["gcloud", "projects", "describe", project,
@@ -211,6 +299,17 @@ def collect(project, location="global", outdir="shapes"):
         "command": "GET <each Cloud Run url>%s" % AGENT_CARD_PATH,
     }
 
+    usage, umeta = usage_from_audit_logs(project)
+    data["usage"] = usage
+    data["usage_meta"] = umeta
+    with open(os.path.join(outdir, "usage.json"), "w") as f:
+        json.dump({"usage": usage, "meta": umeta}, f, indent=2)
+    manifest["usage"] = {
+        "ok": umeta["ok"], "exit_code": 0 if umeta["ok"] else 1,
+        "error": umeta.get("error"), "records": len(usage),
+        "command": "gcloud logging read <cloud audit logs>",
+    }
+
     num = project_number(project)
     data["project_number"] = num
     manifest["__project_number__"] = num or "UNMEASURED"
@@ -236,6 +335,13 @@ def load(indir="shapes"):
             data[key] = None
     mpath = os.path.join(indir, "manifest.json")
     manifest = json.load(open(mpath)) if os.path.exists(mpath) else {}
+    upath = os.path.join(indir, "usage.json")
+    if os.path.exists(upath):
+        blob = json.load(open(upath))
+        data["usage"] = blob.get("usage") or {}
+        data["usage_meta"] = blob.get("meta") or {}
+    else:
+        data["usage"], data["usage_meta"] = {}, {}
     n = manifest.get("__project_number__")
     data["project_number"] = None if n in (None, "UNMEASURED") else n
     return data, manifest
