@@ -103,30 +103,128 @@ both known. No region label, no derivation. When derivation isn't possible the
 report warns that the address set is incomplete, because widening a set does
 not prove it complete.
 
-## Usage
+## Spin-up
+
+Tested on macOS with Python 3.12 and Google Cloud SDK 580.0.0.
+
+**1. Clone and create the environment.** Python 3.10+ is required —
+`google-adk` will not install on 3.9.
 
 ```
-python3 bin/muster.py run     --project PROJECT_ID   # collect, then report
-python3 bin/muster.py collect --project PROJECT_ID   # snapshot to shapes/
-python3 bin/muster.py report                         # render a saved snapshot
+git clone https://github.com/seekdaseek/muster.git
+cd muster
+python3.12 -m venv .venv
+.venv/bin/pip install google-adk google-cloud-aiplatform
 ```
 
-Reads only. The one permission it needs beyond viewer roles is
-`roles/agentregistry.viewer`.
+**2. Install and authenticate the Google Cloud SDK.**
+
+```
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+```
+
+**3. Enable the APIs muster reads from.** Enabling is free; charges come from
+use. `agentregistry` is a separate API and is easy to miss — it is not part
+of `aiplatform`.
+
+```
+gcloud services enable \
+  agentregistry.googleapis.com \
+  aiplatform.googleapis.com \
+  run.googleapis.com \
+  modelarmor.googleapis.com \
+  logging.googleapis.com \
+  iam.googleapis.com \
+  cloudresourcemanager.googleapis.com \
+  --project YOUR_PROJECT_ID
+```
+
+**4. Provide a Gemini API key** — only the agents need it; the rule engine
+and CLI do not. Put it in a `.env` beside the repo. The loader reports the
+key's name and length, never its value.
+
+```
+printf 'Paste your Gemini API key: '
+read -rs K; echo
+printf 'GOOGLE_API_KEY=%s\n' "$K" > ../.env
+chmod 600 ../.env
+unset K
+```
+
+**5. Run the tests.** They are offline — no network, no cloud, no key. Under
+an interpreter without `google-adk` the agent tests skip rather than error.
+
+```
+python3 -m unittest discover -s tests
+```
+
+**6. Run it.**
+
+```
+python3 bin/muster.py run --project YOUR_PROJECT_ID          # engine only
+.venv/bin/python agent/reviewer_fleet.py --project YOUR_ID   # the agent fleet
+.venv/bin/python agent/reviewer_agent.py --project YOUR_ID   # single reviewer
+```
+
+**Optional — deploy a workload for the shadow detection to find.** This is
+the subject under review, not part of muster.
+
+```
+gcloud services enable cloudbuild.googleapis.com --project YOUR_PROJECT_ID
+cd shadow && gcloud run deploy invoice-triage --source . \
+  --region us-central1 --allow-unauthenticated \
+  --min-instances 0 --max-instances 1
+```
+
+### Permissions
+
+muster reads only. Beyond standard viewer roles it needs
+`roles/agentregistry.viewer`. A Cloud Build deploy of the sample workload
+additionally needs `roles/cloudbuild.builds.builder` on the build service
+account.
+
+### Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the system diagram, the
+separation-of-concerns table, and how a worker agent that loops, invents or
+dies is handled.
+
+## The reviewer fleet
+
+Three specialised agents on Gemini 3.5 Flash via Google ADK, coordinated by
+code rather than by a model:
+
+| Agent | Owns | Cannot |
+| --- | --- | --- |
+| Surveyor | inventory the fleet | gather evidence, write the record |
+| Investigator | close evidence gaps that have a route | inventory, write the record |
+| Recorder | write the auditor-facing record | inventory, gather evidence |
+
+Tool sets are disjoint and asserted so. A worker that loops is refused by the
+loop guard; one that invents an identifier or a count has it caught by a
+check against the measured evidence and kept out of the record; one that dies
+degrades the campaign to the deterministic engine result with its verdicts
+untouched.
 
 ## Layout
 
 ```
 src/inventory.py   pure functions over measured JSON, no I/O
 src/verdict.py     deterministic verdict rules, no model
+src/fleet.py       role isolation, loop guard, claim verification, routing
+src/reviewer.py    the gap-closing loop
+src/closers.py     read-only evidence closers
 src/collect.py     gcloud reads, manifest, agent-card probes
+src/envload.py     .env loading that never exposes a value
 src/report.py      rendering
 bin/muster.py      CLI
+agent/             the ADK agents
 fixtures/          real JSON shapes captured from a live project
 shadow/            a service that advertises itself as an agent and is not
                    registered, for exercising shadow detection against a real
                    workload rather than a fixture
-tests/             106 tests, offline, no network
+tests/             212 tests, offline, no network
 ```
 
 ```
