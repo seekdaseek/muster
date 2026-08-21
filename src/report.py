@@ -211,9 +211,10 @@ def render(data, manifest):
             A("  no templates yet, so no content findings exist to read")
 
     # ---- the campaign. Rules decide; no model touches a verdict.
-    usage = data.get("usage") or {}
-    audit = inv.audit_config(data.get("iam") or {})
     umeta = data.get("usage_meta") or {}
+    usage = V.observed_usage(data.get("usage"), principals,
+                             umeta.get("ok", False))
+    audit = inv.audit_config(data.get("iam") or {})
     audit["window_days"] = umeta.get("window_days")
     audit["truncated"] = umeta.get("truncated", False)
     verdicts, tally = V.run_campaign(data, agents, tools, principals, shadows,

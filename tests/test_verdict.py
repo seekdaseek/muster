@@ -159,6 +159,44 @@ class TestCertifyIsHardToReach(unittest.TestCase):
             V.REVOKE)
 
 
+class TestAbsenceFromASuccessfulReadIsAnObservation(unittest.TestCase):
+    """Never appearing in a log we read is `[]`, not `None`. Only a failed
+    read is `None`. Collapsing them makes a clean identity unjudgeable."""
+
+    def test_a_successful_read_gives_every_principal_an_observation(self):
+        u = V.observed_usage({"user:a@b.com": ["Create"]},
+                             ["user:a@b.com", "serviceAccount:x@y.com"], True)
+        self.assertEqual(u["user:a@b.com"], ["Create"])
+        self.assertEqual(u["serviceAccount:x@y.com"], [])
+
+    def test_a_failed_read_observes_nobody(self):
+        self.assertEqual(
+            V.observed_usage({"user:a@b.com": ["Create"]}, ["user:a@b.com"], False),
+            {})
+
+    def test_an_unseen_principal_reaches_the_window_rule_not_no_evidence(self):
+        p = {"serviceAccount:quiet@x.iam.gserviceaccount.com": ["roles/run.invoker"]}
+        u = V.observed_usage({}, list(p), True)
+        v = V.judge_principals(p, u, FRESH_AUDIT)[0]
+        self.assertEqual(v["rule"], "observation-window-too-short")
+
+    def test_an_unseen_principal_can_be_revoked_once_the_record_is_good(self):
+        """The whole point of the fix: a clean, long, complete record makes
+        an unused entitlement judgeable."""
+        p = {"serviceAccount:quiet@x.iam.gserviceaccount.com": ["roles/storage.admin"]}
+        u = V.observed_usage({}, list(p), True)
+        v = V.judge_principals(p, u, COMPLETE_AUDIT)[0]
+        self.assertEqual(v["verdict"], V.REVOKE)
+        self.assertEqual(v["rule"], "held-exceeds-used")
+
+    def test_when_the_read_fails_it_stays_no_usage_evidence(self):
+        p = {"serviceAccount:quiet@x.iam.gserviceaccount.com": ["roles/storage.admin"]}
+        u = V.observed_usage({}, list(p), False)
+        v = V.judge_principals(p, u, COMPLETE_AUDIT)[0]
+        self.assertEqual(v["verdict"], V.ABSTAIN)
+        self.assertEqual(v["rule"], "no-usage-evidence")
+
+
 class TestRevokeNeedsCompleteEvidence(unittest.TestCase):
     def test_primitive_role_on_service_account_is_revoke_without_usage(self):
         principals = inv.iam_principals(fx("iam.json"))

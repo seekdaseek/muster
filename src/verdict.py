@@ -92,6 +92,23 @@ def _verdict(subject, kind, verdict, rule, evidence, missing=None):
 
 # --------------------------------------------------------------- principals
 
+def observed_usage(usage, principals, read_ok):
+    """Turn a successful audit read into an observation for EVERY principal.
+
+    A principal that never appears in a log we READ SUCCESSFULLY was observed
+    doing nothing — that is `[]`, an observation. `None` means one thing only:
+    we could not read the log. Collapsing the two makes an identity with a
+    perfect clean record indistinguishable from one we never looked at, and
+    it would abstain forever no matter how long the window grew.
+    """
+    if not read_ok:
+        return {}
+    out = dict(usage or {})
+    for member in principals:
+        out.setdefault(member, [])
+    return out
+
+
 def judge_principals(principals, usage=None, audit=None):
     """One verdict per IAM principal.
 
