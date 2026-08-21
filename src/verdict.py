@@ -397,9 +397,12 @@ def certification_blockers(usage, audit=None):
     if not window_sufficient(audit):
         w = audit.get("window_days")
         out.append("only %s of observation — %d days are required before "
-                   "an absence of activity means anything, and enabling audit "
-                   "logs is not retroactive, so the clock starts when you "
-                   "switch them on"
+                   "an absence of activity means anything. Admin Activity "
+                   "logs already reach back to project creation and are "
+                   "retained; enabling Data Access logs adds a SEPARATE "
+                   "record that starts empty from the moment you switch it "
+                   "on. Nothing existing is lost, but read activity before "
+                   "that moment was never written down"
                    % ("an unrecorded period" if w is None else "%d day(s)" % w,
                       MIN_OBSERVATION_DAYS))
     return out

@@ -65,10 +65,14 @@ class TestCertifyIsHardToReach(unittest.TestCase):
         self.assertTrue(any("DATA_WRITE" in x for x in b))
         self.assertEqual(V.certification_blockers({"a": []}, COMPLETE_AUDIT), [])
 
-    def test_blockers_warn_that_enabling_logs_is_not_retroactive(self):
+    def test_blockers_say_nothing_existing_is_lost(self):
+        """The model narrated "the clock will reset", which implies losing
+        the Admin Activity history. It is not lost. Say so explicitly."""
         b = V.certification_blockers({"a": []}, FRESH_AUDIT)
-        self.assertTrue(any("not retroactive" in x for x in b))
-        self.assertTrue(any("clock starts when you switch them on" in x for x in b))
+        line = [x for x in b if "observation" in x][0]
+        self.assertIn("Nothing existing is lost", line)
+        self.assertIn("reach back to project creation", line)
+        self.assertNotIn("reset", line.lower())
 
     def test_a_freshly_enabled_log_certifies_and_revokes_nothing(self):
         """The trap: turn audit logging on, run a campaign ten minutes later,
