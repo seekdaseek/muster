@@ -29,6 +29,14 @@ REVOKE, CERTIFY, ABSTAIN = "REVOKE", "CERTIFY", "ABSTAIN"
 # so the agent never loops on something it cannot obtain.
 GAP_USAGE_EVIDENCE = "usage_evidence"
 GAP_AUDIT_LOGGING_OFF = "audit_logging_disabled"
+GAP_OBSERVATION_WINDOW = "insufficient_observation_window"
+
+# How long an identity must be watched before "it did nothing" means
+# anything. Access recertification runs on quarterly or annual cycles, so a
+# month is the shortest window that survives an auditor asking "and how long
+# did you look?". Configurable, but never zero: a record that is complete and
+# five minutes long is complete about almost nothing.
+MIN_OBSERVATION_DAYS = 30
 GAP_AGENT_CARD = "agent_card_unreadable"
 GAP_TOOL_BINDINGS = "tool_bindings"
 GAP_UNDECLARED_CAPABILITY = "undeclared_write_capability"
@@ -42,6 +50,8 @@ GAP_ACTIONS = {
     # The reviewer cannot enable audit logging on someone else's project.
     # It reports the switch; the owner throws it.
     GAP_AUDIT_LOGGING_OFF: None,
+    # Only time closes this one. No tool call helps.
+    GAP_OBSERVATION_WINDOW: None,
     GAP_AGENT_CARD: "re-probe the workload's A2A well-known path",
     GAP_TOOL_BINDINGS: "agent-registry bindings list",
     GAP_ADDRESS_SET: "resolve the project number and region, then rebuild "
@@ -120,6 +130,21 @@ def judge_principals(principals, usage=None, audit=None):
                                 "no-usage-evidence", ev,
                                 [_gap(GAP_USAGE_EVIDENCE,
                                       "what this principal actually invoked")]))
+            continue
+        window = audit.get("window_days")
+        if window is None or window < MIN_OBSERVATION_DAYS:
+            out.append(_verdict(
+                member, "principal", ABSTAIN, "observation-window-too-short",
+                ev + [_ev("observed %d operation(s) over %s day(s)"
+                          % (len(used),
+                             "an unrecorded number of" if window is None else window),
+                          "cloud audit logs")],
+                [_gap(GAP_OBSERVATION_WINDOW,
+                      "at least %d days of observation — an identity that did "
+                      "nothing for %s is not an identity that does nothing"
+                      % (MIN_OBSERVATION_DAYS,
+                         "an unknown period" if window is None
+                         else "%d day(s)" % window))]))
             continue
         if not audit.get("complete"):
             missing = [_gap(GAP_AUDIT_LOGGING_OFF,
@@ -278,6 +303,11 @@ def run_campaign(data, agents, tools, principals, shadows, usage=None, audit=Non
     return verdicts, tally
 
 
+def window_sufficient(audit):
+    w = (audit or {}).get("window_days")
+    return w is not None and w >= MIN_OBSERVATION_DAYS
+
+
 def certify_reachable(usage, audit=None):
     """Is CERTIFY even possible with the evidence this project records?
 
@@ -286,7 +316,8 @@ def certify_reachable(usage, audit=None):
     something. Stating this up front is the difference between "we found
     nothing to certify" and "we could not have certified anything".
     """
-    return bool(usage) and bool((audit or {}).get("complete"))
+    return (bool(usage) and bool((audit or {}).get("complete"))
+            and window_sufficient(audit))
 
 
 def certification_blockers(usage, audit=None):
@@ -301,4 +332,12 @@ def certification_blockers(usage, audit=None):
                    "unrecorded")
     if not audit.get("data_write"):
         out.append("DATA_WRITE audit logs are disabled — same fix")
+    if not window_sufficient(audit):
+        w = audit.get("window_days")
+        out.append("only %s of observation — %d days are required before "
+                   "an absence of activity means anything, and enabling audit "
+                   "logs is not retroactive, so the clock starts when you "
+                   "switch them on"
+                   % ("an unrecorded period" if w is None else "%d day(s)" % w,
+                      MIN_OBSERVATION_DAYS))
     return out

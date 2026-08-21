@@ -18,9 +18,11 @@ def fx(name):
 
 
 COMPLETE_AUDIT = {"complete": True, "data_read": True, "data_write": True,
-                  "admin_activity": True}
+                  "admin_activity": True, "window_days": 90}
+FRESH_AUDIT = {"complete": True, "data_read": True, "data_write": True,
+               "admin_activity": True, "window_days": 0}
 DEFAULT_AUDIT = {"complete": False, "data_read": False, "data_write": False,
-                 "admin_activity": True}
+                 "admin_activity": True, "window_days": None}
 
 
 def snapshot():
@@ -44,12 +46,16 @@ class TestCertifyIsHardToReach(unittest.TestCase):
         _, tally = V.run_campaign(data, agents, tools, principals, shadows,
                                   usage, DEFAULT_AUDIT)
         self.assertEqual(tally[V.CERTIFY], 0)
+        _, tally = V.run_campaign(data, agents, tools, principals, shadows,
+                                  usage, FRESH_AUDIT)
+        self.assertEqual(tally[V.CERTIFY], 0)
 
     def test_certify_needs_observations_AND_a_complete_record(self):
         u = {"user:a@b.com": ["roles/viewer"]}
         self.assertFalse(V.certify_reachable({}, COMPLETE_AUDIT))
         self.assertFalse(V.certify_reachable(None, COMPLETE_AUDIT))
         self.assertFalse(V.certify_reachable(u, DEFAULT_AUDIT))
+        self.assertFalse(V.certify_reachable(u, FRESH_AUDIT))
         self.assertTrue(V.certify_reachable(u, COMPLETE_AUDIT))
 
     def test_blockers_name_the_switch_to_throw(self):
@@ -59,12 +65,45 @@ class TestCertifyIsHardToReach(unittest.TestCase):
         self.assertTrue(any("DATA_WRITE" in x for x in b))
         self.assertEqual(V.certification_blockers({"a": []}, COMPLETE_AUDIT), [])
 
+    def test_blockers_warn_that_enabling_logs_is_not_retroactive(self):
+        b = V.certification_blockers({"a": []}, FRESH_AUDIT)
+        self.assertTrue(any("not retroactive" in x for x in b))
+        self.assertTrue(any("clock starts when you switch them on" in x for x in b))
+
+    def test_a_freshly_enabled_log_certifies_and_revokes_nothing(self):
+        """The trap: turn audit logging on, run a campaign ten minutes later,
+        and every principal looks unused. It is not unused. It is unobserved."""
+        p = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/storage.admin"]}
+        v = V.judge_principals(p, {"serviceAccount:app@x.iam.gserviceaccount.com": []},
+                               FRESH_AUDIT)[0]
+        self.assertEqual(v["verdict"], V.ABSTAIN)
+        self.assertEqual(v["rule"], "observation-window-too-short")
+        self.assertEqual([g["kind"] for g in v["missing_evidence"]],
+                         [V.GAP_OBSERVATION_WINDOW])
+
+    def test_an_unrecorded_window_is_treated_as_too_short(self):
+        p = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/storage.admin"]}
+        a = dict(COMPLETE_AUDIT); a["window_days"] = None
+        v = V.judge_principals(p, {"serviceAccount:app@x.iam.gserviceaccount.com": []}, a)[0]
+        self.assertEqual(v["rule"], "observation-window-too-short")
+
+    def test_only_time_closes_the_window_gap(self):
+        self.assertIsNone(V.GAP_ACTIONS[V.GAP_OBSERVATION_WINDOW])
+        self.assertEqual(V.closeable([V._gap(V.GAP_OBSERVATION_WINDOW, "x")]), [])
+
+    def test_window_boundary(self):
+        self.assertFalse(V.window_sufficient({"window_days": V.MIN_OBSERVATION_DAYS - 1}))
+        self.assertTrue(V.window_sufficient({"window_days": V.MIN_OBSERVATION_DAYS}))
+        self.assertFalse(V.window_sufficient({}))
+
     def test_silence_in_an_incomplete_record_is_not_innocence(self):
         """The whole point. Observed nothing + reads not logged = ABSTAIN,
         never CERTIFY and never REVOKE."""
         p = {"serviceAccount:app@x.iam.gserviceaccount.com": ["roles/storage.admin"]}
+        long_but_incomplete = dict(DEFAULT_AUDIT)
+        long_but_incomplete["window_days"] = 365
         v = V.judge_principals(p, {"serviceAccount:app@x.iam.gserviceaccount.com": []},
-                               DEFAULT_AUDIT)[0]
+                               long_but_incomplete)[0]
         self.assertEqual(v["verdict"], V.ABSTAIN)
         self.assertEqual(v["rule"], "usage-record-incomplete")
         self.assertEqual([g["kind"] for g in v["missing_evidence"]],

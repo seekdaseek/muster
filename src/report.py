@@ -223,9 +223,12 @@ def render(data, manifest):
     kinds = {}
     for v in verdicts:
         kinds[v["kind"]] = kinds.get(v["kind"], 0) + 1
+    w = audit.get("window_days")
     A("  audit record: Admin Activity on (always) · DATA_READ %s · DATA_WRITE %s"
       % ("on" if audit["data_read"] else "OFF",
          "on" if audit["data_write"] else "OFF"))
+    A("  observation window: %s (%d required)"
+      % ("unrecorded" if w is None else "%d day(s)" % w, V.MIN_OBSERVATION_DAYS))
     A("  subjects: %s" % "  ".join("%s %d" % (k, n) for k, n in sorted(kinds.items())))
     blockers = V.certification_blockers(usage, audit)
     if not V.certify_reachable(usage, audit):
