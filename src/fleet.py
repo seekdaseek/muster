@@ -198,16 +198,75 @@ def route(state):
     return None
 
 
+def verdict_count(engine_output):
+    """How many verdicts the rule engine actually produced.
+
+    The engine records {"tally": {...}, "verdicts": <int>}. Either shape counts:
+    an explicit count, or a tally with something in it. Anything else is zero,
+    because an absent number is not a verdict.
+    """
+    e = engine_output or {}
+    if not isinstance(e, dict):
+        return 0
+    v = e.get("verdicts")
+    if isinstance(v, bool):
+        return 0
+    if isinstance(v, int):
+        return max(0, v)
+    if isinstance(v, (list, tuple, dict)):
+        return len(v)
+    tally = e.get("tally")
+    if isinstance(tally, dict):
+        return sum(n for n in tally.values() if isinstance(n, int) and n > 0)
+    return 0
+
+
+def failed_stage(reason):
+    """The stage named in a degrade reason, or None.
+
+    Reasons are written as "<role> failed: <ExcType>: <message>", so the role
+    is the leading token. If a caller phrases it differently we say nothing
+    rather than guess at a stage name.
+    """
+    if not reason or " failed:" not in reason:
+        return None
+    stage = reason.split(" failed:", 1)[0].strip()
+    return stage or None
+
+
 def degrade(reason, engine_output):
     """What the campaign returns when a worker agent cannot be used.
 
     The deterministic result is not a consolation prize; it is the actual
-    answer. The agents were only ever going to describe it.
+    answer — WHEN THERE IS ONE. A live fleet run crashed inside collect, before
+    the rule engine had decided anything, and the transcript still printed
+    "Verdicts are unaffected — the rule engine had already decided them" two
+    lines above "engine result: {}". That sentence was false: there were no
+    verdicts to be unaffected.
+
+    This is the same failure as defect 12 in the build log — the narrator
+    overclaiming while the engine sat empty — so the claim is now derived from
+    the engine output instead of asserted, and `note` carries the sentence the
+    transcript prints so the two cannot drift apart again.
     """
+    count = verdict_count(engine_output)
+    stage = failed_stage(reason)
+    if count > 0:
+        note = ("Verdicts are unaffected — the rule engine had already "
+                "decided them.")
+    elif stage:
+        note = ("The campaign produced no verdicts: %s failed before the rule "
+                "engine decided anything." % stage)
+    else:
+        note = ("The campaign produced no verdicts — it failed before the "
+                "rule engine decided anything.")
     return {
         "degraded": True,
         "reason": reason,
-        "verdicts_unaffected": True,
+        "verdicts_unaffected": count > 0,
+        "verdict_count": count,
+        "failed_stage": stage,
+        "note": note,
         "campaign": engine_output,
     }
 

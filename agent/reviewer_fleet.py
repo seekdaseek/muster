@@ -293,8 +293,10 @@ def main():
             print("    %s" % r["reason"])
     if result.get("degraded"):
         print("\n  DEGRADED: %s" % result["reason"])
-        print("  Verdicts are unaffected — the rule engine had already "
-              "decided them.")
+        # The sentence is computed by F.degrade from the engine output, not
+        # written here. Hard-coding it printed "Verdicts are unaffected" above
+        # an empty engine result on a run that crashed inside collect.
+        print("  %s" % result.get("note", ""))
     print("\n  engine result: %s" % json.dumps(_STATE.get("engine") or {}))
     return 0
 

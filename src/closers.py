@@ -26,11 +26,15 @@ def _agent_registry_bindings(subject, item, project=None, location="global"):
 
 def _agent_card(subject, item, urls=None):
     for url in urls or []:
-        state, card = C.probe_agent_card(url)
+        state, card, detail = C.probe_agent_card(url)
         if state == "card":
             return True, card, "agent card served at %s" % url
         if state == "no_card":
-            return True, [], "no agent card at %s, confirmed by a 404" % url
+            # The reason is carried, not asserted. no_card now covers a 404, a
+            # body that did not parse, and JSON with no agent fields; claiming
+            # "confirmed by a 404" for the other two would invent evidence.
+            return True, [], "no agent card at %s (%s)" % (
+                url, detail or "nothing agent-shaped served")
     return False, None, "no address for this workload could be reached"
 
 

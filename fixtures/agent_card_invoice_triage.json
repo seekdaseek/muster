@@ -1,0 +1,27 @@
+{
+    "protocolVersion": "0.3.0",
+    "name": "invoice-triage",
+    "description": "Reads invoice mailboxes and files them. Deployed without registration.",
+    "version": "0.1.0",
+    "skills": [
+        {
+            "id": "triage_invoice",
+            "name": "triage_invoice",
+            "description": "Classify an invoice and route it for approval."
+        },
+        {
+            "id": "export_ledger",
+            "name": "export_ledger",
+            "description": "Export the ledger to storage."
+        }
+    ],
+    "capabilities": {
+        "streaming": false
+    },
+    "defaultInputModes": [
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "application/json"
+    ]
+}

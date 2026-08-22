@@ -196,6 +196,76 @@ class TestAWorkerThatDies(unittest.TestCase):
         self.assertIn("timed out", F.degrade("investigator timed out", {})["reason"])
 
 
+class TestTheNarratorCannotOverclaim(unittest.TestCase):
+    """"Verdicts are unaffected" is a claim about verdicts that exist.
+
+    A live fleet run crashed inside collect and the transcript printed that
+    sentence two lines above "engine result: {}". Same failure as defect 12 in
+    the build log: the narrator asserting while the engine sat empty. The claim
+    is now derived, so these tests pin it in BOTH directions.
+    """
+
+    EMPTY_ENGINES = [
+        ("engine never ran", None),
+        ("engine dict empty", {}),
+        ("tally present but empty", {"tally": {}}),
+        ("explicit zero verdicts", {"tally": {}, "verdicts": 0}),
+        ("tally of zeroes", {"tally": {"REVOKE": 0, "KEEP": 0}}),
+    ]
+
+    NONEMPTY_ENGINES = [
+        ("counted verdicts", {"tally": {"REVOKE": 3}, "verdicts": 12}),
+        ("tally only", {"tally": {"REVOKE": 3}}),
+        ("verdict list", {"verdicts": [{"subject": "a"}]}),
+    ]
+
+    def test_unaffected_wording_only_when_verdicts_exist(self):
+        for label, engine in self.EMPTY_ENGINES:
+            with self.subTest(empty=label):
+                out = F.degrade("surveyor failed: AttributeError: x", engine)
+                self.assertNotIn("unaffected", out["note"])
+                self.assertFalse(out["verdicts_unaffected"])
+        for label, engine in self.NONEMPTY_ENGINES:
+            with self.subTest(nonempty=label):
+                out = F.degrade("investigator failed: TimeoutError: x", engine)
+                self.assertIn("unaffected", out["note"])
+                self.assertTrue(out["verdicts_unaffected"])
+
+    def test_an_empty_campaign_says_so_and_names_the_stage(self):
+        out = F.degrade("surveyor failed: AttributeError: 'str' object has no "
+                        "attribute 'get'", {})
+        self.assertIn("no verdicts", out["note"])
+        self.assertIn("surveyor", out["note"])
+        self.assertEqual(out["failed_stage"], "surveyor")
+        self.assertEqual(out["verdict_count"], 0)
+
+    def test_an_unphrased_reason_names_no_stage_rather_than_guessing(self):
+        out = F.degrade("something went wrong", None)
+        self.assertIsNone(out["failed_stage"])
+        self.assertIn("no verdicts", out["note"])
+        self.assertNotIn("unaffected", out["note"])
+
+    def test_the_note_is_what_the_transcript_prints(self):
+        """The narrator must not carry its own copy of the sentence."""
+        path = os.path.join(ROOT, "agent", "reviewer_fleet.py")
+        with open(path) as fh:
+            src = fh.read()
+        printed = [ln for ln in src.splitlines()
+                   if "Verdicts are unaffected" in ln and not ln.strip().startswith("#")]
+        self.assertEqual(printed, [],
+                         "reviewer_fleet.py hard-codes the claim instead of "
+                         "printing F.degrade's note")
+        self.assertIn('result.get("note"', src)
+
+    def test_verdict_count_reads_both_engine_shapes(self):
+        self.assertEqual(F.verdict_count({"verdicts": 12}), 12)
+        self.assertEqual(F.verdict_count({"tally": {"REVOKE": 2, "KEEP": 1}}), 3)
+        self.assertEqual(F.verdict_count({"verdicts": []}), 0)
+        self.assertEqual(F.verdict_count(None), 0)
+        self.assertEqual(F.verdict_count("not a dict"), 0)
+        self.assertEqual(F.verdict_count({"verdicts": True}), 0)
+
+
 class TestTheTranscriptIsAuditable(unittest.TestCase):
     def test_calls_refusals_and_bad_claims_are_counted_per_role(self):
         events = [

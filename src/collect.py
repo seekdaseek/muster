@@ -98,32 +98,73 @@ AGENT_CARD_PATH = "/.well-known/agent-card.json"
 def probe_agent_card(url, fetch=None):
     """Does this URL serve an A2A agent card?
 
-    Returns one of: "card" (it advertises itself as an agent), "no_card"
-    (reachable, nothing there), or UNREACHABLE. Unreachable is NOT no_card —
-    a service behind auth or a cold start is unmeasured, not innocent.
+    Returns THREE values: (state, card, detail).
+
+      state   "card" (it advertises itself as an agent), "no_card" (it
+              answered, and what came back is not an agent card), or
+              UNREACHABLE. Unreachable is NOT no_card — a service behind auth
+              or a cold start is unmeasured, not innocent.
+      card    ALWAYS a dict or None. Never a string. The previous version
+              returned the error message in this slot on failure, and the
+              caller then called .get() on it, which is how a live fleet run
+              died inside collect with 'str' object has no attribute 'get'.
+      detail  the reason, as a string, or None. Reasons belong in their own
+              slot where nothing will mistake one for a payload.
+
+    The classification table, in full:
+
+      no HTTP response at all (transport, DNS, timeout)  -> UNREACHABLE
+      HTTP 401 / 403, behind auth                        -> UNREACHABLE
+      HTTP 5xx                                           -> UNREACHABLE
+      HTTP 404                                           -> no_card
+      HTTP 2xx, body is not JSON                         -> no_card
+      HTTP 2xx, JSON that is not an object               -> no_card
+      HTTP 2xx, object with neither name nor skills      -> no_card
+      HTTP 2xx, object with name or skills               -> card
+
+    The four 2xx rows are the point: a body that ARRIVED and did not parse is
+    an answer about this service, not a failure to reach it. Measured on the
+    live fleet, https://muster-report-...run.app serves HTTP 200 text/html at
+    the well-known path, and the old code filed that reachable service under
+    UNREACHABLE because the JSON parse raised inside a bare except.
     """
     if not url or url == "UNMEASURED":
-        return "UNREACHABLE", None
+        return "UNREACHABLE", None, "no address to probe"
     fetch = fetch or _plain_get
-    ok, payload, err, code = fetch(url.rstrip("/") + AGENT_CARD_PATH)
+    ok, payload, detail, code = fetch(url.rstrip("/") + AGENT_CARD_PATH)
     if not ok:
         if code == 404:
-            return "no_card", None
-        return "UNREACHABLE", err
-    if isinstance(payload, dict) and (payload.get("name") or payload.get("skills")):
-        return "card", payload
-    return "no_card", None
+            return "no_card", None, detail or "HTTP 404"
+        return "UNREACHABLE", None, detail
+    if not isinstance(payload, dict):
+        return "no_card", None, detail or "response body was not a JSON object"
+    if payload.get("name") or payload.get("skills"):
+        return "card", payload, None
+    return "no_card", None, "JSON object served, carrying neither name nor skills"
 
 
 def _plain_get(url):
+    """Fetch a URL. Returns (ok, payload, detail, code).
+
+    `ok` means A RESPONSE ARRIVED, not that it was useful. A 200 whose body is
+    not JSON returns ok=True with payload None and a detail naming the parse
+    failure, so the caller can tell "this service answered with something that
+    is not a card" apart from "this service could not be reached at all".
+    json.JSONDecodeError is caught on its own for exactly that reason; folded
+    into the generic except below, it turned every HTML page into an outage.
+    """
     try:
         with urllib.request.urlopen(url, timeout=20) as r:
             body = r.read().decode("utf-8")
-        return True, json.loads(body) if body.strip() else {}, None, 200
+            code = getattr(r, "status", None) or r.getcode() or 200
     except urllib.error.HTTPError as e:
         return False, None, "HTTP %s" % e.code, e.code
     except Exception as e:
         return False, None, "%s: %s" % (type(e).__name__, e), -1
+    try:
+        return True, json.loads(body) if body.strip() else {}, None, code
+    except json.JSONDecodeError as e:
+        return True, None, "response body is not JSON: %s" % e, code
 
 
 def probe_run_services(run_services, fetch=None):
@@ -133,12 +174,16 @@ def probe_run_services(run_services, fetch=None):
         url = (svc.get("status") or {}).get("url")
         if not url:
             continue
-        state, card = probe_agent_card(url, fetch=fetch)
+        state, card, detail = probe_agent_card(url, fetch=fetch)
+        # card is guaranteed a dict or None by the contract above, so .get()
+        # here can no longer meet a string.
+        card = card if isinstance(card, dict) else {}
         out[url.rstrip("/")] = {
             "state": state,
-            "declared_name": (card or {}).get("name"),
+            "detail": detail,
+            "declared_name": card.get("name"),
             "declared_skills": [s.get("id") or s.get("name")
-                                for s in (card or {}).get("skills") or []],
+                                for s in card.get("skills") or []],
         }
     return out
 
